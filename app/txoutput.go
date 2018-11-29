@@ -12,14 +12,9 @@ type TXOutput struct {
 
 func NewTXOutput(value float64,address string) TXOutput {
 	txo:=TXOutput{value,nil}
-	txo.Lock(address)
-	return txo
-}
-
-func (txo *TXOutput) Lock(address string)  {
 	x:=base58.Decode(address)
-	h:=x[1:len(x)-4]
-	txo.PublicKeyHash=h
+	txo.PublicKeyHash=x[1:len(x)-4]
+	return txo
 }
 
 func (txo *TXOutput) CanBeUnlockedWith(publicKeyHash []byte) bool {

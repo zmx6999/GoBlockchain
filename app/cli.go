@@ -3,22 +3,26 @@ package app
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"github.com/btcsuite/btcutil/base58"
-		"bytes"
+	"bytes"
+	"strconv"
 )
 
 type CLI struct {}
 
 const Usage=`
-	Usage:
-	createw "create a wallet"
-	laddress "list addresses"
-	createbc --address ADDRESS "create a blockchain"
-	send --from FROM_ADDRESS --to TO_ADDRESS --amount AMOUNT --miner MINER_ADDRESS
-	balance --address ADDRESS "get balance"
-	print "print blockchain"
+createw "create wallet"
+laddress "list address"
+createbc --address ADDRESS "create blockchain"
+balance --address ADDRESS "get balance"
+send --from FROM_ADDRESS --to TO_ADDRESS --amount AMOUNT --miner MINER_ADDRESS "transfer"
+print "print blockchain"
 `
+
+func PrintError(e interface{})  {
+	fmt.Println(e)
+	os.Exit(-1)
+}
 
 func (cli *CLI) Run()  {
 	if len(os.Args)<2 {
@@ -33,7 +37,7 @@ func (cli *CLI) Run()  {
 		if len(os.Args)>3 && os.Args[2]=="--address" {
 			address:=os.Args[3]
 			if address=="" {
-				PrintError("invalid address")
+				PrintError("address cannot be empty")
 			}
 			cli.CreateBlockChain(address)
 		} else {
@@ -52,14 +56,14 @@ func (cli *CLI) Run()  {
 		if len(os.Args)>3 && os.Args[2]=="--address" {
 			address:=os.Args[3]
 			if address=="" {
-				PrintError("invalid address")
+				PrintError("address cannot be empty")
 			}
-			cli.GetBalance(address)
+			cli.Balance(address)
 		} else {
 			PrintError(Usage)
 		}
 	case "print":
-		cli.PrintBlockChain()
+		cli.Print()
 	default:
 		PrintError(Usage)
 	}
@@ -68,7 +72,7 @@ func (cli *CLI) Run()  {
 func (cli *CLI) CreateWallet()  {
 	wallets:=GetWallets()
 	address:=wallets.CreateWallet()
-	fmt.Println("address ",address)
+	fmt.Println(address)
 }
 
 func (cli *CLI) ListAddress()  {
@@ -80,57 +84,59 @@ func (cli *CLI) ListAddress()  {
 }
 
 func (cli *CLI) CreateBlockChain(address string)  {
-	if !IsValidAddress(address) {
+	if !isValidAddress(address) {
 		PrintError("invalid address")
 	}
 	bc:=NewBlockChain(address)
-	defer bc.db.Close()
+	defer bc.DB.Close()
 }
 
 func (cli *CLI) Send(from string,to string,amount float64,miner string)  {
-	if !IsValidAddress(from) || !IsValidAddress(to) || !IsValidAddress(miner) {
-		PrintError("invalid address")
+	if !isValidAddress(from) {
+		PrintError("invalid from address")
+	}
+	if !isValidAddress(to) {
+		PrintError("invalid to address")
+	}
+	if !isValidAddress(miner) {
+		PrintError("invalid miner address")
 	}
 	bc:=GetBlockChain()
-	defer bc.db.Close()
+	defer bc.DB.Close()
 	coinbase:=NewCoinbase(miner,"")
 	tx:=bc.NewTransaction(from,to,amount)
 	bc.AddBlock([]*Transaction{coinbase,tx})
 }
 
-func (cli *CLI) GetBalance(address string)  {
-	if !IsValidAddress(address) {
+func (cli *CLI) Balance(address string)  {
+	if !isValidAddress(address) {
 		PrintError("invalid address")
 	}
 	bc:=GetBlockChain()
-	defer bc.db.Close()
+	defer bc.DB.Close()
 	x:=base58.Decode(address)
 	h:=x[1:len(x)-4]
 	txos:=bc.FindUTXOs(h)
-	balance:=0.0
+	total:=0.0
 	for _,txo:=range txos{
-		balance+=txo.Value
+		total+=txo.Value
 	}
-	fmt.Println(address," balance ",balance)
+	fmt.Println(total)
 }
 
-func (cli *CLI) PrintBlockChain()  {
+func (cli *CLI) Print()  {
 	bc:=GetBlockChain()
-	defer bc.db.Close()
+	defer bc.DB.Close()
 	bci:=bc.NewBlockChainIterator()
-	for  {
-		block:=bci.GetCurrentBlock()
+	bci.Travel(func(block *Block) {
 		fmt.Println(block)
 		for _,tx:=range block.Transactions{
 			fmt.Println(tx)
 		}
-		if len(block.PrevBlockHash)==0 {
-			break
-		}
-	}
+	})
 }
 
-func IsValidAddress(address string) bool {
+func isValidAddress(address string) bool {
 	x:=base58.Decode(address)
 	if len(x)<4 {
 		return false
@@ -139,9 +145,4 @@ func IsValidAddress(address string) bool {
 	checkcode1:=x[len(x)-4:]
 	checkcode2:=CheckSum(payload)
 	return bytes.Compare(checkcode1,checkcode2)==0
-}
-
-func PrintError(e interface{})  {
-	fmt.Println(e)
-	os.Exit(-1)
 }

@@ -18,7 +18,7 @@ type Transaction struct {
 	TXOutputs []TXOutput
 }
 
-const Reward=50.0
+const Reward=12.5
 
 func NewCoinbase(address string,data string) *Transaction {
 	if data=="" {
@@ -40,20 +40,20 @@ func (tx *Transaction) GetTXID()  {
 }
 
 func (tx *Transaction) IsCoinbase() bool {
-	return len(tx.TXInputs)==1 && tx.TXInputs[0].TXID==nil && tx.TXInputs[0].OutputIndex==-1
+	return len(tx.TXInputs)==1 && tx.TXInputs[0].TXID==nil && tx.TXInputs[0].OutIndex==-1
 }
 
 func (tx *Transaction) Sign(privateKey *ecdsa.PrivateKey,prevTxs map[string]*Transaction)  {
 	if tx.IsCoinbase() {
 		return
 	}
-	_tx:=tx.TrimmedCopy()
-	for k,txi:=range _tx.TXInputs{
+	_tx:=tx.TrimCopy()
+	for k,txi:=range tx.TXInputs{
 		prevTx:=prevTxs[string(txi.TXID)]
 		if prevTx==nil {
-			panic("transaction not found")
+			PrintError("transaction not found")
 		}
-		_tx.TXInputs[k].PublicKey=prevTx.TXOutputs[txi.OutputIndex].PublicKeyHash
+		_tx.TXInputs[k].PublicKey=prevTx.TXOutputs[txi.OutIndex].PublicKeyHash
 		_tx.GetTXID()
 		_tx.TXInputs[k].PublicKey=nil
 		r,s,err:=ecdsa.Sign(rand.Reader,privateKey,_tx.TXID)
@@ -68,24 +68,24 @@ func (tx *Transaction) Verify(prevTxs map[string]*Transaction) bool {
 	if tx.IsCoinbase() {
 		return true
 	}
-	_tx:=tx.TrimmedCopy()
+	_tx:=tx.TrimCopy()
 	for k,txi:=range tx.TXInputs{
 		prevTx:=prevTxs[string(txi.TXID)]
 		if prevTx==nil {
-			panic("transaction not found")
+			PrintError("transaction not found")
 		}
-		_tx.TXInputs[k].PublicKey=prevTx.TXOutputs[txi.OutputIndex].PublicKeyHash
+		_tx.TXInputs[k].PublicKey=prevTx.TXOutputs[txi.OutIndex].PublicKeyHash
 		_tx.GetTXID()
 		_tx.TXInputs[k].PublicKey=nil
-		r:=big.Int{}
-		r.SetBytes(txi.Signature[:len(txi.Signature)/2])
-		s:=big.Int{}
-		s.SetBytes(txi.Signature[len(txi.Signature)/2:])
 		x:=big.Int{}
 		x.SetBytes(txi.PublicKey[:len(txi.PublicKey)/2])
 		y:=big.Int{}
 		y.SetBytes(txi.PublicKey[len(txi.PublicKey)/2:])
 		rawPublicKey:=ecdsa.PublicKey{elliptic.P256(),&x,&y}
+		r:=big.Int{}
+		r.SetBytes(txi.Signature[:len(txi.Signature)/2])
+		s:=big.Int{}
+		s.SetBytes(txi.Signature[len(txi.Signature)/2:])
 		if !ecdsa.Verify(&rawPublicKey,_tx.TXID,&r,&s) {
 			return false
 		}
@@ -93,10 +93,10 @@ func (tx *Transaction) Verify(prevTxs map[string]*Transaction) bool {
 	return true
 }
 
-func (tx *Transaction) TrimmedCopy() *Transaction {
+func (tx *Transaction) TrimCopy() *Transaction {
 	var txis []TXInput
 	for _,txi:=range tx.TXInputs{
-		txis=append(txis,TXInput{txi.TXID,txi.OutputIndex,nil,nil})
+		txis=append(txis,TXInput{txi.TXID,txi.OutIndex,nil,nil})
 	}
 	var txos []TXOutput
 	for _,txo:=range tx.TXOutputs{
@@ -107,19 +107,18 @@ func (tx *Transaction) TrimmedCopy() *Transaction {
 }
 
 func (tx *Transaction) String() string {
-	var lines []string
-	lines=append(lines,fmt.Sprintf("   Transaction %x",tx.TXID))
+	lines:=[]string{fmt.Sprintf("   Transaction %x",tx.TXID)}
 	for k,txi:=range tx.TXInputs{
 		lines=append(lines,fmt.Sprintf("    Input %d",k))
-		lines=append(lines,fmt.Sprintf("      TXID:%x",txi.TXID))
-		lines=append(lines,fmt.Sprintf("      OutputIndex:%d",txi.OutputIndex))
-		lines=append(lines,fmt.Sprintf("      Signature:%x",txi.Signature))
-		lines=append(lines,fmt.Sprintf("      PublicKey:%x",txi.PublicKey))
+		lines=append(lines,fmt.Sprintf("      TXID %x",txi.TXID))
+		lines=append(lines,fmt.Sprintf("      OutIndex %d",txi.OutIndex))
+		lines=append(lines,fmt.Sprintf("      Signature %x",txi.Signature))
+		lines=append(lines,fmt.Sprintf("      PublicKey %x",txi.PublicKey))
 	}
 	for k,txo:=range tx.TXOutputs{
 		lines=append(lines,fmt.Sprintf("    Output %d",k))
-		lines=append(lines,fmt.Sprintf("      Value:%f",txo.Value))
-		lines=append(lines,fmt.Sprintf("      PublicKeyHash:%x",txo.PublicKeyHash))
+		lines=append(lines,fmt.Sprintf("      Value %f",txo.Value))
+		lines=append(lines,fmt.Sprintf("      PublicKeyHash %x",txo.PublicKeyHash))
 	}
 	return strings.Join(lines,"\n")
 }

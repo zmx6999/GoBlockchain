@@ -12,7 +12,7 @@ type Wallets struct {
 	WalletMap map[string]*Wallet
 }
 
-const WalletName="181125.wat"
+const WalletFile="181129.wat"
 
 func GetWallets() *Wallets {
 	wallets:=LoadWalletsFromFile()
@@ -23,19 +23,32 @@ func GetWallets() *Wallets {
 }
 
 func (ws *Wallets) CreateWallet() string {
-	wallets:=GetWallets()
 	wallet:=NewWallet()
 	address:=wallet.GetAddress()
-	wallets.WalletMap[address]=wallet
-	wallets.SaveFile()
+	ws.WalletMap[address]=wallet
+	ws.SaveFile()
 	return address
 }
 
+func (ws *Wallets) SaveFile()  {
+	var buffer bytes.Buffer
+	encoder:=gob.NewEncoder(&buffer)
+	gob.Register(elliptic.P256())
+	err:=encoder.Encode(ws)
+	if err!=nil {
+		PrintError(err)
+	}
+	err=ioutil.WriteFile(WalletFile,buffer.Bytes(),0600)
+	if err!=nil {
+		PrintError(err)
+	}
+}
+
 func LoadWalletsFromFile() *Wallets {
-	if _,err:=os.Stat(WalletName);os.IsNotExist(err) {
+	if _,err:=os.Stat(WalletFile);os.IsNotExist(err) {
 		return nil
 	}
-	data,err:=ioutil.ReadFile(WalletName)
+	data,err:=ioutil.ReadFile(WalletFile)
 	if err!=nil {
 		PrintError(err)
 	}
@@ -49,17 +62,6 @@ func LoadWalletsFromFile() *Wallets {
 		PrintError(err)
 	}
 	return &wallets
-}
-
-func (ws *Wallets) SaveFile()  {
-	var buffer bytes.Buffer
-	encoder:=gob.NewEncoder(&buffer)
-	gob.Register(elliptic.P256())
-	err:=encoder.Encode(ws)
-	if err!=nil {
-		PrintError(err)
-	}
-	err=ioutil.WriteFile(WalletName,buffer.Bytes(),0600)
 }
 
 func (ws *Wallets) ListAddress() []string {

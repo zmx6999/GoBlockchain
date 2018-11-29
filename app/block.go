@@ -2,8 +2,8 @@ package app
 
 import (
 	"time"
-	"bytes"
 	"crypto/sha256"
+	"bytes"
 	"encoding/binary"
 	"math/big"
 	"encoding/gob"
@@ -22,7 +22,7 @@ type Block struct {
 	Hash []byte
 }
 
-func NewBlock(transactions []*Transaction,prevBlockHash []byte) *Block {
+func NewBlock(txs []*Transaction,prevBlockHash []byte) *Block {
 	block:=Block{
 		0,
 		prevBlockHash,
@@ -30,16 +30,16 @@ func NewBlock(transactions []*Transaction,prevBlockHash []byte) *Block {
 		time.Now().Unix(),
 		20,
 		0,
-		transactions,
+		txs,
 		[]byte{},
 	}
 	block.GetMerkleRoot()
 	pow:=block.NewPOW()
-	block.Nonce,block.Hash=pow.Mining()
+	block.Hash,block.Nonce=pow.Mining()
 	return &block
 }
 
-func (b *Block) GetMerkleRoot() {
+func (b *Block) GetMerkleRoot()  {
 	var t [][]byte
 	for _,tx:=range b.Transactions{
 		t=append(t,tx.TXID)
@@ -48,7 +48,7 @@ func (b *Block) GetMerkleRoot() {
 	b.MerkleRoot=h[:]
 }
 
-func (b *Block) GetHash(nonce int64) []byte {
+func (b *Block) GetBytes(nonce int64) []byte {
 	t:=[][]byte{
 		int64ToBytes(b.Version),
 		b.PrevBlockHash,
@@ -66,10 +66,10 @@ func int64ToBytes(x int64) []byte {
 	return buffer.Bytes()
 }
 
-func (b *Block) NewPOW() *ProofOfWork {
+func (b *Block) NewPOW() *POW {
 	bt:=big.NewInt(1)
 	bt.Lsh(bt,256-uint(b.Difficulty))
-	return &ProofOfWork{b,*bt}
+	return &POW{b,*bt}
 }
 
 func Serialize(block *Block) []byte {
@@ -89,8 +89,7 @@ func Unserialize(data []byte) *Block {
 }
 
 func (b *Block) String() string {
-	var lines []string
-	lines=append(lines,fmt.Sprintf("                 Block %x",b.Hash))
+	lines:=[]string{fmt.Sprintf("          Block %x",b.Hash)}
 	lines=append(lines,fmt.Sprintf("Version:%d",b.Version))
 	lines=append(lines,fmt.Sprintf("PrevBlockHash:%x",b.PrevBlockHash))
 	lines=append(lines,fmt.Sprintf("MerkleRoot:%x",b.MerkleRoot))

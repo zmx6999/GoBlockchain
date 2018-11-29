@@ -4,7 +4,7 @@ import "bytes"
 
 type TXInput struct {
 	TXID []byte
-	OutputIndex int64
+	OutIndex int64
 	Signature []byte
 	PublicKey []byte
 }

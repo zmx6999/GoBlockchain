@@ -15,7 +15,7 @@ type Wallet struct {
 }
 
 func NewWallet() *Wallet {
-	privateKey,err:=ecdsa.GenerateKey(elliptic.P256(),rand.Reader) //must use P256 curve or will result in invalid transaction
+	privateKey,err:=ecdsa.GenerateKey(elliptic.P256(),rand.Reader)
 	if err!=nil {
 		PrintError(err)
 	}

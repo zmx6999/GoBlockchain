@@ -4,24 +4,23 @@ import (
 	"bolt"
 	"os"
 	"errors"
-	"crypto/ecdsa"
 	"bytes"
+	"crypto/ecdsa"
 )
 
 type BlockChain struct {
-	db *bolt.DB
-	tail []byte
+	DB *bolt.DB
+	Tail []byte
 }
 
 const (
-	DBName="181125.db"
-	BucketName="181125"
+	DBName="181129.db"
+	BucketName="181129"
 	LastKey="last"
-	GenesisInfo="The Times 03/Jan/2009 Chancellor on brink of second bailout for banks"
 )
 
 func NewBlockChain(address string) *BlockChain {
-	if IsDBExists() {
+	if DBExists() {
 		PrintError(DBName+" exists")
 	}
 	db,err:=bolt.Open(DBName,0600,nil)
@@ -36,7 +35,7 @@ func NewBlockChain(address string) *BlockChain {
 			if err!=nil {
 				return err
 			}
-			coinbase:=NewCoinbase(address,GenesisInfo)
+			coinbase:=NewCoinbase(address,"Chancellor on brink of second bailout")
 			block:=NewBlock([]*Transaction{coinbase},[]byte{})
 			bucket.Put(block.Hash,Serialize(block))
 			bucket.Put([]byte(LastKey),block.Hash)
@@ -50,8 +49,8 @@ func NewBlockChain(address string) *BlockChain {
 }
 
 func GetBlockChain() *BlockChain {
-	if !IsDBExists() {
-		PrintError(DBName+" not exists")
+	if !DBExists() {
+		PrintError(DBName+" doesn't exist")
 	}
 	db,err:=bolt.Open(DBName,0600,nil)
 	if err!=nil {
@@ -61,7 +60,7 @@ func GetBlockChain() *BlockChain {
 	db.View(func(tx *bolt.Tx) error {
 		bucket:=tx.Bucket([]byte(BucketName))
 		if bucket==nil {
-			return errors.New("bucket "+BucketName+" not exists")
+			return errors.New("bucket "+BucketName+" doesn't exist")
 		} else {
 			tail=bucket.Get([]byte(LastKey))
 			return nil
@@ -70,43 +69,22 @@ func GetBlockChain() *BlockChain {
 	return &BlockChain{db,tail}
 }
 
-func (bc *BlockChain) AddBlock(transactions []*Transaction)  {
-	for _,tx:=range transactions{
-		if !bc.VerifyTransaction(tx) {
-			PrintError("invalid transaction")
-		}
-	}
-	bc.db.Update(func(tx *bolt.Tx) error {
-		bucket:=tx.Bucket([]byte(BucketName))
-		if bucket==nil {
-			return errors.New("bucket "+BucketName+" not exists")
-		} else {
-			block:=NewBlock(transactions,bc.tail)
-			bucket.Put(block.Hash,Serialize(block))
-			bucket.Put([]byte(LastKey),block.Hash)
-			bc.tail=block.Hash
-			return nil
-		}
-	})
-}
-
-func (bc *BlockChain) NewBlockChainIterator() *BlockChainIterator {
-	return &BlockChainIterator{bc.db,bc.tail}
-}
-
-func IsDBExists() bool {
+func DBExists() bool {
 	if _,err:=os.Stat(DBName);os.IsNotExist(err) {
 		return false
 	}
 	return true
 }
 
+func (bc *BlockChain) NewBlockChainIterator() *BlockChainIterator {
+	return &BlockChainIterator{bc.DB,bc.Tail}
+}
+
 func (bc *BlockChain) FindUTXOTransactions(publicKeyHash []byte) []*Transaction {
 	var txs []*Transaction
-	bci:=bc.NewBlockChainIterator()
 	spentUTXO:=make(map[string][]int64)
-	for  {
-		block:=bci.GetCurrentBlock()
+	bci:=bc.NewBlockChainIterator()
+	bci.Travel(func(block *Block) {
 		for _,tx:=range block.Transactions{
 			OUTPUT:
 			for k,txo:=range tx.TXOutputs{
@@ -125,15 +103,12 @@ func (bc *BlockChain) FindUTXOTransactions(publicKeyHash []byte) []*Transaction 
 			if !tx.IsCoinbase() {
 				for _,txi:=range tx.TXInputs{
 					if txi.CanUnlockWith(publicKeyHash) {
-						spentUTXO[string(txi.TXID)]=append(spentUTXO[string(txi.TXID)],txi.OutputIndex)
+						spentUTXO[string(txi.TXID)]=append(spentUTXO[string(txi.TXID)],txi.OutIndex)
 					}
 				}
 			}
 		}
-		if len(block.PrevBlockHash)==0 {
-			break
-		}
-	}
+	})
 	return txs
 }
 
@@ -185,57 +160,71 @@ func (bc *BlockChain) NewTransaction(from string,to string,amount float64) *Tran
 			txis=append(txis,TXInput{[]byte(k),v2,nil,publicKey})
 		}
 	}
-	var txos []TXOutput
-	txos=append(txos,NewTXOutput(amount,to))
+	txos:=[]TXOutput{NewTXOutput(amount,to)}
 	if total>amount {
 		txos=append(txos,NewTXOutput(total-amount,from))
 	}
 	tx:=Transaction{nil,txis,txos}
 	tx.GetTXID()
-	privateKey:=wallet.PrivateKey
-	bc.SignTransaction(&tx,&privateKey)
+	bc.SignTransaction(&tx,&wallet.PrivateKey)
 	return &tx
 }
 
-func (bc *BlockChain) SignTransaction(transaction *Transaction,privateKey *ecdsa.PrivateKey)  {
+func (bc *BlockChain) AddBlock(txs []*Transaction)  {
+	for _,tx:=range txs{
+		if !bc.VerifyTransaction(tx) {
+			PrintError("invalid transaction")
+		}
+	}
+	bc.DB.Update(func(tx *bolt.Tx) error {
+		bucket:=tx.Bucket([]byte(BucketName))
+		if bucket==nil {
+			return errors.New("bucket "+BucketName+" doesn't exist")
+		} else {
+			block:=NewBlock(txs,bc.Tail)
+			bucket.Put(block.Hash,Serialize(block))
+			bucket.Put([]byte(LastKey),block.Hash)
+			bc.Tail=block.Hash
+			return nil
+		}
+	})
+}
+
+func (bc *BlockChain) FindTransaction(id []byte) *Transaction {
+	var tx *Transaction
+	bci:=bc.NewBlockChainIterator()
+	bci.Travel(func(block *Block) {
+		for _,_tx:=range block.Transactions{
+			if bytes.Compare(id,_tx.TXID)==0 {
+				tx=_tx
+				return
+			}
+		}
+	})
+	return tx
+}
+
+func (bc *BlockChain) SignTransaction(tx *Transaction,privateKey *ecdsa.PrivateKey)  {
 	prevTxs:=make(map[string]*Transaction)
-	for _,txi:=range transaction.TXInputs{
-		prevTx:=prevTxs[string(txi.TXID)]
-		if prevTx==nil {
-			prevTx=bc.FindTransaction(txi.TXID)
+	for _,txi:=range tx.TXInputs{
+		if prevTxs[string(txi.TXID)]==nil {
+			prevTx:=bc.FindTransaction(txi.TXID)
 			prevTxs[string(txi.TXID)]=prevTx
 		}
 	}
-	transaction.Sign(privateKey,prevTxs)
+	tx.Sign(privateKey,prevTxs)
 }
 
-func (bc *BlockChain) VerifyTransaction(transaction *Transaction) bool {
-	if transaction.IsCoinbase() {
+func (bc *BlockChain) VerifyTransaction(tx *Transaction) bool {
+	if tx.IsCoinbase() {
 		return true
 	}
 	prevTxs:=make(map[string]*Transaction)
-	for _,txi:=range transaction.TXInputs{
-		prevTx:=prevTxs[string(txi.TXID)]
-		if prevTx==nil {
-			prevTx=bc.FindTransaction(txi.TXID)
+	for _,txi:=range tx.TXInputs{
+		if prevTxs[string(txi.TXID)]==nil {
+			prevTx:=bc.FindTransaction(txi.TXID)
 			prevTxs[string(txi.TXID)]=prevTx
 		}
 	}
-	return transaction.Verify(prevTxs)
-}
-
-func (bc *BlockChain) FindTransaction(txid []byte) *Transaction {
-	bci:=bc.NewBlockChainIterator()
-	for  {
-		block:=bci.GetCurrentBlock()
-		for _,tx:=range block.Transactions{
-			if bytes.Compare(tx.TXID,txid)==0 {
-				return tx
-			}
-		}
-		if len(block.PrevBlockHash)==0 {
-			break
-		}
-	}
-	return nil
+	return tx.Verify(prevTxs)
 }
